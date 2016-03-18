@@ -1,5 +1,6 @@
 /*
  * Dumbster - a dummy SMTP server
+ * Copyright 2016 Joachim Nicolay
  * Copyright 2004 Jason Paul Kitchen
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,51 +18,61 @@
 
 package com.dumbster.smtp;
 
-import junit.framework.TestCase;
+import org.junit.Test;
 
-public class SmtpRequestTest extends TestCase {
+import static org.hamcrest.Matchers.is;
+import static org.junit.Assert.assertThat;
 
-  public void testUnrecognizedCommandConnectState() {
-    SmtpRequest request = new SmtpRequest(SmtpActionType.UNRECOG, null, SmtpState.CONNECT);
-    SmtpResponse response = request.execute();
-    assertTrue(response.getCode() == 500);
-  }
+public class SmtpRequestTest {
 
-  public void testUnrecognizedCommandGreetState() {
-    SmtpRequest request = new SmtpRequest(SmtpActionType.UNRECOG, null, SmtpState.GREET);
-    SmtpResponse response = request.execute();
-    assertTrue(response.getCode() == 500);
-  }
+	@Test
+	public void testUnrecognizedCommandConnectState() {
+		SmtpRequest request = new SmtpRequest(SmtpActionType.UNRECOG, null, SmtpState.CONNECT);
+		SmtpResponse response = request.execute();
+		assertThat(response.getCode(), is(500));
+	}
 
-  public void testUnrecognizedCommandMailState() {
-    SmtpRequest request = new SmtpRequest(SmtpActionType.UNRECOG, null, SmtpState.MAIL);
-    SmtpResponse response = request.execute();
-    assertTrue(response.getCode() == 500);
-  }
+	@Test
+	public void testUnrecognizedCommandGreetState() {
+		SmtpRequest request = new SmtpRequest(SmtpActionType.UNRECOG, null, SmtpState.GREET);
+		SmtpResponse response = request.execute();
+		assertThat(response.getCode(), is(500));
+	}
 
-  public void testUnrecognizedCommandQuitState() {
-    SmtpRequest request = new SmtpRequest(SmtpActionType.UNRECOG, null, SmtpState.QUIT);
-    SmtpResponse response = request.execute();
-    assertTrue(response.getCode() == 500);
-  }
+	@Test
+	public void testUnrecognizedCommandMailState() {
+		SmtpRequest request = new SmtpRequest(SmtpActionType.UNRECOG, null, SmtpState.MAIL);
+		SmtpResponse response = request.execute();
+		assertThat(response.getCode(), is(500));
+	}
 
-  public void testUnrecognizedCommandRcptState() {
-    SmtpRequest request = new SmtpRequest(SmtpActionType.UNRECOG, null, SmtpState.RCPT);
-    SmtpResponse response = request.execute();
-    assertTrue(response.getCode() == 500);
-  }
+	@Test
+	public void testUnrecognizedCommandQuitState() {
+		SmtpRequest request = new SmtpRequest(SmtpActionType.UNRECOG, null, SmtpState.QUIT);
+		SmtpResponse response = request.execute();
+		assertThat(response.getCode(), is(500));
+	}
 
-  public void testUnrecognizedCommandDataBodyState() {
-    SmtpRequest request = new SmtpRequest(SmtpActionType.UNRECOG, null, SmtpState.DATA_BODY);
-    SmtpResponse response = request.execute();
-    assertTrue(response.getCode() == -1);
-  }
+	@Test
+	public void testUnrecognizedCommandRcptState() {
+		SmtpRequest request = new SmtpRequest(SmtpActionType.UNRECOG, null, SmtpState.RCPT);
+		SmtpResponse response = request.execute();
+		assertThat(response.getCode(), is(500));
+	}
 
-  public void testUnrecognizedCommandDataHdrState() {
-    SmtpRequest request = new SmtpRequest(SmtpActionType.UNRECOG, null, SmtpState.DATA_HDR);
-    SmtpResponse response = request.execute();
-    assertTrue(response.getCode() == -1);
-  }
+	@Test
+	public void testUnrecognizedCommandDataBodyState() {
+		SmtpRequest request = new SmtpRequest(SmtpActionType.UNRECOG, null, SmtpState.DATA_BODY);
+		SmtpResponse response = request.execute();
+		assertThat(response.getCode(), is(-1));
+	}
+
+	@Test
+	public void testUnrecognizedCommandDataHdrState() {
+		SmtpRequest request = new SmtpRequest(SmtpActionType.UNRECOG, null, SmtpState.DATA_HDR);
+		SmtpResponse response = request.execute();
+		assertThat(response.getCode(), is(-1));
+	}
 
 
 }

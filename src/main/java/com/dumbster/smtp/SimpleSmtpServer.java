@@ -1,7 +1,8 @@
 /*
  * Dumbster - a dummy SMTP server
+ * Copyright 2016 Joachim Nicolay
  * Copyright 2004 Jason Paul Kitchen
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -16,253 +17,209 @@
  */
 package com.dumbster.smtp;
 
+import lombok.extern.slf4j.Slf4j;
+
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.List;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
-import java.io.IOException;
+import java.util.List;
+import java.util.Scanner;
+import java.util.regex.Pattern;
 
-/**
- * Dummy SMTP server for testing purposes.
- *
- * @todo constructor allowing user to pass preinitialized ServerSocket
- */
-public class SimpleSmtpServer implements Runnable {
-  /**
-   * Stores all of the email received since this instance started up.
-   */
-  private List receivedMail;
+/** Dummy SMTP server for testing purposes. */
+@Slf4j
+public final class SimpleSmtpServer {
 
-  /**
-   * Default SMTP port is 25.
-   */
-  public static final int DEFAULT_SMTP_PORT = 25;
+	/** When stopping wait this long for any still ongoing transmission */
+	private static final int STOP_TIMEOUT = 20000;
 
-  /**
-   * Indicates whether this server is stopped or not.
-   */
-  private volatile boolean stopped = true;
+	/** Default SMTP port is 25. */
+	public static final int DEFAULT_SMTP_PORT = 25;
 
-  /**
-   * Handle to the server socket this server listens to.
-   */
-  private ServerSocket serverSocket;
+	/** pick any free port. */
+	public static final int AUTO_SMTP_PORT = 0;
 
-  /**
-   * Port the server listens on - set to the default SMTP port initially.
-   */
-  private int port = DEFAULT_SMTP_PORT;
+	/** Stores all of the email received since this instance started up. */
+	private final List<SmtpMessage> receivedMail;
 
-  /**
-   * Timeout listening on server socket.
-   */
-  private static final int TIMEOUT = 500;
+	/** Indicates the server thread that it should stop */
+	private volatile boolean stopped = false;
 
-  /**
-   * Constructor.
-   * @param port port number
-   */
-  public SimpleSmtpServer(int port) {
-    receivedMail = new ArrayList();
-    this.port = port;
-  }
+	/** The server socket this server listens to. */
+	private final ServerSocket serverSocket;
+	/** Thread that does the work. */
+	private final Thread workerThread;
 
-  /**
-   * Main loop of the SMTP server.
-   */
-  public void run() {
-    stopped = false;
-    try {
-      try {
-        serverSocket = new ServerSocket(port);
-        serverSocket.setSoTimeout(TIMEOUT); // Block for maximum of 1.5 seconds
-      } finally {
-        synchronized (this) {
-          // Notify when server socket has been created
-          notifyAll();
-        }
-      }
+	private static final Pattern CRLF = Pattern.compile("\r\n");
 
-      // Server: loop until stopped
-      while (!isStopped()) {
-        // Start server socket and listen for client connections
-        Socket socket = null;
-        try {
-          socket = serverSocket.accept();
-        } catch (Exception e) {
-          if (socket != null) {
-            socket.close();
-          }
-          continue; // Non-blocking socket timeout occurred: try accept() again
-        }
+	private SimpleSmtpServer(ServerSocket serverSocket) {
+		this.receivedMail = new ArrayList<>();
+		this.serverSocket = serverSocket;
+		this.workerThread = new Thread(
+				new Runnable() {
+					@Override
+					public void run() {
+						performWork();
+					}
+				});
+		this.workerThread.start();
+	}
 
-        // Get the input and output streams
-        BufferedReader input = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-        PrintWriter out = new PrintWriter(socket.getOutputStream());
+	/**
+	 * Main loop of the SMTP server.
+	 */
+	private void performWork() {
+		try {
+			// Server: loop until stopped
+			while (!stopped) {
+				// Start server socket and listen for client connections
+				//noinspection resource
+				try (Socket socket = serverSocket.accept();
+				     Scanner input = new Scanner(new InputStreamReader(socket.getInputStream(), StandardCharsets.ISO_8859_1)).useDelimiter(CRLF);
+				     PrintWriter out = new PrintWriter(new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.ISO_8859_1));) {
 
-        synchronized (this) {
-          /*
-           * We synchronize over the handle method and the list update because the client call completes inside
-           * the handle method and we have to prevent the client from reading the list until we've updated it.
-           * For higher concurrency, we could just change handle to return void and update the list inside the method
-           * to limit the duration that we hold the lock.
-           */
-          List msgs = handleTransaction(out, input);
-          receivedMail.addAll(msgs);
-        }
-        socket.close();
-      }
-    } catch (Exception e) {
-      /** @todo Should throw an appropriate exception here. */
-      e.printStackTrace();
-    } finally {
-      if (serverSocket != null) {
-        try {
-          serverSocket.close();
-        } catch (IOException e) {
-          e.printStackTrace();
-        }
-      }
-    }
-  }
+					synchronized (receivedMail) {
+						/*
+						 * We synchronize over the handle method and the list update because the client call completes inside
+						 * the handle method and we have to prevent the client from reading the list until we've updated it.
+						 */
+						receivedMail.addAll(handleTransaction(out, input));
+					}
+				}
+			}
+		} catch (Exception e) {
+			// SocketException expected when stopping the server
+			if (!stopped) {
+				log.error("hit exception when running server", e);
+				try {
+					serverSocket.close();
+				} catch (IOException ex) {
+					log.error("and one when closing the port", ex);
+				}
+			}
+		}
+	}
 
-  /**
-   * Check if the server has been placed in a stopped state. Allows another thread to
-   * stop the server safely.
-   * @return true if the server has been sent a stop signal, false otherwise
-   */
-  public synchronized boolean isStopped() {
-    return stopped;
-  }
+	/**
+	 * Stops the server. Server is shutdown after processing of the current request is complete.
+	 */
+	public void stop() {
+		if (stopped) {
+			return;
+		}
+		// Mark us closed
+		stopped = true;
+		try {
+			// Kick the server accept loop
+			serverSocket.close();
+		} catch (IOException e) {
+			log.warn("trouble closing the server socket", e);
+		}
+		// and block until worker is finished
+		try {
+			workerThread.join(STOP_TIMEOUT);
+		} catch (InterruptedException e) {
+			log.warn("interrupted when waiting for worker thread to finish", e);
+		}
+	}
 
-  /**
-   * Stops the server. Server is shutdown after processing of the current request is complete.
-   */
-  public synchronized void stop() {
-    // Mark us closed
-    stopped = true;
-    try {
-      // Kick the server accept loop
-      serverSocket.close();
-    } catch (IOException e) {
-      // Ignore
-    }
-  }
+	/**
+	 * Handle an SMTP transaction, i.e. all activity between initial connect and QUIT command.
+	 *
+	 * @param out   output stream
+	 * @param input input stream
+	 * @return List of SmtpMessage
+	 * @throws IOException
+	 */
+	private static List<SmtpMessage> handleTransaction(PrintWriter out, Iterator<String> input) throws IOException {
+		// Initialize the state machine
+		SmtpState smtpState = SmtpState.CONNECT;
+		SmtpRequest smtpRequest = new SmtpRequest(SmtpActionType.CONNECT, "", smtpState);
 
-  /**
-   * Handle an SMTP transaction, i.e. all activity between initial connect and QUIT command.
-   *
-   * @param out   output stream
-   * @param input input stream
-   * @return List of SmtpMessage
-   * @throws IOException
-   */
-  private List handleTransaction(PrintWriter out, BufferedReader input) throws IOException {
-    // Initialize the state machine
-    SmtpState smtpState = SmtpState.CONNECT;
-    SmtpRequest smtpRequest = new SmtpRequest(SmtpActionType.CONNECT, "", smtpState);
+		// Execute the connection request
+		SmtpResponse smtpResponse = smtpRequest.execute();
 
-    // Execute the connection request
-    SmtpResponse smtpResponse = smtpRequest.execute();
+		// Send initial response
+		sendResponse(out, smtpResponse);
+		smtpState = smtpResponse.getNextState();
 
-    // Send initial response
-    sendResponse(out, smtpResponse);
-    smtpState = smtpResponse.getNextState();
+		List<SmtpMessage> msgList = new ArrayList<>();
+		SmtpMessage msg = new SmtpMessage();
 
-    List msgList = new ArrayList();
-    SmtpMessage msg = new SmtpMessage();
+		while (smtpState != SmtpState.CONNECT) {
+			String line = input.next();
 
-    while (smtpState != SmtpState.CONNECT) {
-      String line = input.readLine();
+			if (line == null) {
+				break;
+			}
 
-      if (line == null) {
-        break;
-      }
+			// Create request from client input and current state
+			SmtpRequest request = SmtpRequest.createRequest(line, smtpState);
+			// Execute request and create response object
+			SmtpResponse response = request.execute();
+			// Move to next internal state
+			smtpState = response.getNextState();
+			// Send response to client
+			sendResponse(out, response);
 
-      // Create request from client input and current state
-      SmtpRequest request = SmtpRequest.createRequest(line, smtpState);
-      // Execute request and create response object
-      SmtpResponse response = request.execute();
-      // Move to next internal state
-      smtpState = response.getNextState();
-      // Send reponse to client
-      sendResponse(out, response);
+			// Store input in message
+			String params = request.params;
+			msg.store(response, params);
 
-      // Store input in message
-      String params = request.getParams();
-      msg.store(response, params);
+			// If message reception is complete save it
+			if (smtpState == SmtpState.QUIT) {
+				msgList.add(msg);
+				msg = new SmtpMessage();
+			}
+		}
 
-      // If message reception is complete save it
-      if (smtpState == SmtpState.QUIT) {
-        msgList.add(msg);
-        msg = new SmtpMessage();
-      }
-    }
+		return msgList;
+	}
 
-    return msgList;
-  }
+	/**
+	 * Send response to client.
+	 *
+	 * @param out          socket output stream
+	 * @param smtpResponse response object
+	 */
+	private static void sendResponse(PrintWriter out, SmtpResponse smtpResponse) {
+		if (smtpResponse.getCode() > 0) {
+			int code = smtpResponse.getCode();
+			String message = smtpResponse.getMessage();
+			out.print(code + " " + message + "\r\n");
+			out.flush();
+		}
+	}
 
-  /**
-   * Send response to client.
-   * @param out socket output stream
-   * @param smtpResponse response object
-   */
-  private static void sendResponse(PrintWriter out, SmtpResponse smtpResponse) {
-    if (smtpResponse.getCode() > 0) {
-      int code = smtpResponse.getCode();
-      String message = smtpResponse.getMessage();
-      out.print(code + " " + message + "\r\n");
-      out.flush();
-    }
-  }
+	/**
+	 * Get email received by this instance since start up.
+	 *
+	 * @return List of String
+	 */
+	public List<SmtpMessage> getReceivedEmails() {
+		synchronized (receivedMail) {
+			return Collections.unmodifiableList(new ArrayList<>(receivedMail));
+		}
+	}
 
-  /**
-   * Get email received by this instance since start up.
-   * @return List of String
-   */
-  public synchronized Iterator getReceivedEmail() {
-    return receivedMail.iterator();
-  }
+	/**
+	 * Creates an instance of SimpleSmtpServer and starts it.
+	 *
+	 * @param port port number the server should listen to
+	 * @return a reference to the running SMTP server
+	 */
+	public static SimpleSmtpServer start(int port) throws IOException {
+		return new SimpleSmtpServer(new ServerSocket(port));
+	}
 
-  /**
-   * Get the number of messages received.
-   * @return size of received email list
-   */
-  public synchronized int getReceivedEmailSize() {
-    return receivedMail.size();
-  }
-
-  /**
-   * Creates an instance of SimpleSmtpServer and starts it. Will listen on the default port.
-   * @return a reference to the SMTP server
-   */
-  public static SimpleSmtpServer start() {
-    return start(DEFAULT_SMTP_PORT);
-  }
-
-  /**
-   * Creates an instance of SimpleSmtpServer and starts it.
-   * @param port port number the server should listen to
-   * @return a reference to the SMTP server
-   */
-  public static SimpleSmtpServer start(int port) {
-    SimpleSmtpServer server = new SimpleSmtpServer(port);
-    Thread t = new Thread(server);
-    
-    // Block until the server socket is created
-    synchronized (server) {
-      try {
-        t.start();
-        server.wait();
-      } catch (InterruptedException e) {
-        // Ignore don't care.
-      }
-    }
-    return server;
-  }
-
+	public int getPort() {
+		return serverSocket.getLocalPort();
+	}
 }
