@@ -6,6 +6,8 @@ Use Generics and unmodifiable collections to improve usability.
 Reduce visibility of everything that's not public API.
 Add option to auto-pick server port and get picked port from running server.
 Update all kinds of dependencies. (junit4 and hamcrest for testing, slf4j for logging, lombok for coding)
+Extend AutoClosable to enable use in try-with-resource.
+Add reset method to allow using one server in multiple tests.
 
 1.6 (2005-04-04)
 Fixed threading and synchronization problems (sourceforge tracker id: 1111796). Thanks to Charles Hudak for pointing

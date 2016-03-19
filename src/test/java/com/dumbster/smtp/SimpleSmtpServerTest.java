@@ -38,6 +38,7 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 public class SimpleSmtpServerTest {
+
 	private SimpleSmtpServer server;
 
 	@Before
@@ -65,6 +66,18 @@ public class SimpleSmtpServerTest {
 		assertThat(email.getHeaderNames(), hasItem("Subject"));
 		assertThat(email.getHeaderValues("To"), contains("receiver@there.com"));
 		assertThat(email.getHeaderValue("To"), is("receiver@there.com"));
+	}
+
+	@Test
+	public void testSendAndReset() throws MessagingException {
+		sendMessage(server.getPort(), "sender@here.com", "Test", "Test Body", "receiver@there.com");
+		assertThat(server.getReceivedEmails(), hasSize(1));
+
+		server.reset();
+		assertThat(server.getReceivedEmails(), hasSize(0));
+
+		sendMessage(server.getPort(), "sender@here.com", "Test", "Test Body", "receiver@there.com");
+		assertThat(server.getReceivedEmails(), hasSize(1));
 	}
 
 	@Test

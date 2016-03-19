@@ -35,10 +35,7 @@ import java.util.regex.Pattern;
 
 /** Dummy SMTP server for testing purposes. */
 @Slf4j
-public final class SimpleSmtpServer {
-
-	/** When stopping wait this long for any still ongoing transmission */
-	private static final int STOP_TIMEOUT = 20000;
+public final class SimpleSmtpServer implements AutoCloseable {
 
 	/** Default SMTP port is 25. */
 	public static final int DEFAULT_SMTP_PORT = 25;
@@ -46,19 +43,38 @@ public final class SimpleSmtpServer {
 	/** pick any free port. */
 	public static final int AUTO_SMTP_PORT = 0;
 
+	/** When stopping wait this long for any still ongoing transmission */
+	private static final int STOP_TIMEOUT = 20000;
+
+	private static final Pattern CRLF = Pattern.compile("\r\n");
+
 	/** Stores all of the email received since this instance started up. */
 	private final List<SmtpMessage> receivedMail;
+
+	/** The server socket this server listens to. */
+	private final ServerSocket serverSocket;
+
+	/** Thread that does the work. */
+	private final Thread workerThread;
 
 	/** Indicates the server thread that it should stop */
 	private volatile boolean stopped = false;
 
-	/** The server socket this server listens to. */
-	private final ServerSocket serverSocket;
-	/** Thread that does the work. */
-	private final Thread workerThread;
+	/**
+	 * Creates an instance of a started SimpleSmtpServer.
+	 *
+	 * @param port port number the server should listen to
+	 * @return a reference to the running SMTP server
+	 */
+	public static SimpleSmtpServer start(int port) throws IOException {
+		return new SimpleSmtpServer(new ServerSocket(Math.max(port, 0)));
+	}
 
-	private static final Pattern CRLF = Pattern.compile("\r\n");
-
+	/**
+	 * private constructor because factory method {@link #start(int)} better indicates that
+	 * the created server is already running
+	 * @param serverSocket socket to listen on
+	 */
 	private SimpleSmtpServer(ServerSocket serverSocket) {
 		this.receivedMail = new ArrayList<>();
 		this.serverSocket = serverSocket;
@@ -70,6 +86,62 @@ public final class SimpleSmtpServer {
 					}
 				});
 		this.workerThread.start();
+	}
+
+	/**
+	 * @return the port the server is listening on
+	 */
+	public int getPort() {
+		return serverSocket.getLocalPort();
+	}
+
+	/**
+	 * @return list of {@link SmtpMessage}s received by since start up or last reset.
+	 */
+	public List<SmtpMessage> getReceivedEmails() {
+		synchronized (receivedMail) {
+			return Collections.unmodifiableList(new ArrayList<>(receivedMail));
+		}
+	}
+
+	/**
+	 * forgets all received emails
+	 */
+	public void reset() {
+		synchronized (receivedMail) {
+			receivedMail.clear();
+		}
+	}
+
+	/**
+	 * Stops the server. Server is shutdown after processing of the current request is complete.
+	 */
+	public void stop() {
+		if (stopped) {
+			return;
+		}
+		// Mark us closed
+		stopped = true;
+		try {
+			// Kick the server accept loop
+			serverSocket.close();
+		} catch (IOException e) {
+			log.warn("trouble closing the server socket", e);
+		}
+		// and block until worker is finished
+		try {
+			workerThread.join(STOP_TIMEOUT);
+		} catch (InterruptedException e) {
+			log.warn("interrupted when waiting for worker thread to finish", e);
+		}
+	}
+
+	/**
+	 * synonym for {@link #stop()}
+	 */
+	@Override
+	public void close() {
+		stop();
 	}
 
 	/**
@@ -104,29 +176,6 @@ public final class SimpleSmtpServer {
 					log.error("and one when closing the port", ex);
 				}
 			}
-		}
-	}
-
-	/**
-	 * Stops the server. Server is shutdown after processing of the current request is complete.
-	 */
-	public void stop() {
-		if (stopped) {
-			return;
-		}
-		// Mark us closed
-		stopped = true;
-		try {
-			// Kick the server accept loop
-			serverSocket.close();
-		} catch (IOException e) {
-			log.warn("trouble closing the server socket", e);
-		}
-		// and block until worker is finished
-		try {
-			workerThread.join(STOP_TIMEOUT);
-		} catch (InterruptedException e) {
-			log.warn("interrupted when waiting for worker thread to finish", e);
 		}
 	}
 
@@ -196,30 +245,5 @@ public final class SimpleSmtpServer {
 			out.print(code + " " + message + "\r\n");
 			out.flush();
 		}
-	}
-
-	/**
-	 * Get email received by this instance since start up.
-	 *
-	 * @return List of String
-	 */
-	public List<SmtpMessage> getReceivedEmails() {
-		synchronized (receivedMail) {
-			return Collections.unmodifiableList(new ArrayList<>(receivedMail));
-		}
-	}
-
-	/**
-	 * Creates an instance of SimpleSmtpServer and starts it.
-	 *
-	 * @param port port number the server should listen to
-	 * @return a reference to the running SMTP server
-	 */
-	public static SimpleSmtpServer start(int port) throws IOException {
-		return new SimpleSmtpServer(new ServerSocket(port));
-	}
-
-	public int getPort() {
-		return serverSocket.getLocalPort();
 	}
 }
