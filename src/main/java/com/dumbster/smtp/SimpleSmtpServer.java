@@ -65,6 +65,7 @@ public final class SimpleSmtpServer implements AutoCloseable {
 	 *
 	 * @param port port number the server should listen to
 	 * @return a reference to the running SMTP server
+	 * @throws IOException when listening on the socket causes one
 	 */
 	public static SimpleSmtpServer start(int port) throws IOException {
 		return new SimpleSmtpServer(new ServerSocket(Math.max(port, 0)));
