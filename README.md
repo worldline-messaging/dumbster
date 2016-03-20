@@ -14,3 +14,32 @@ And while I'm at it, using slf4j instead of stdout is also nice.
 
 Aside from that, the actual smtp logic is completely unchanged.
 
+### Usage
+Add maven dependency:
+```xml
+<dependency>
+    <groupId>com.github.kirviq</groupId>
+    <artifactId>dumbster</artifactId>
+    <version>1.7</version>
+    <scope>test</scope>
+</dependency>
+```
+Start testing:
+```java
+class SomeTest {
+    public void runTest() {
+        try (SimpleSmtpServer dumbster = SimpleSmtpServer.start(SimpleSmtpServer.AUTO_SMTP_PORT)) {
+        
+            sendMessage(dumbster.getPort(), "sender@here.com", "Test", "Test Body", "receiver@there.com");
+            
+            List<SmtpMessage> emails = dumbster.getReceivedEmails();
+            assertThat(emails, hasSize(1));
+            SmtpMessage email = emails.get(0);
+            assertThat(email.getHeaderValue("Subject"), is("Test"));
+            assertThat(email.getBody(), is("Test Body"));
+            assertThat(email.getHeaderValue("To"), is("receiver@there.com"));
+        }
+    }
+}
+```
+See more examples in the included [unit tests](https://github.com/kirviq/dumbster/blob/master/src/test/java/com/dumbster/smtp/SimpleSmtpServerTest.java).
