@@ -22,7 +22,7 @@
 
 	<groupId>com.github.kirviq</groupId>
 	<artifactId>dumbster</artifactId>
-	<version>1.7.1</version>
+	<version>1.8-SNAPSHOT</version>
 
 	<name>dumbster</name>
 	<description>a simple fake SMTP server for unit testing</description>
@@ -52,7 +52,6 @@
 		<connection>scm:git:git@github.com:kirviq/dumbster.git</connection>
 		<developerConnection>scm:git:git@github.com:kirviq/dumbster.git</developerConnection>
 		<url>git@github.com:kirviq/dumbster.git</url>
-		<tag>dumbster-1.7.1</tag>
 	</scm>
 
 	<properties>
