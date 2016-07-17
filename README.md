@@ -3,7 +3,7 @@
 > send email messages. It responds to all standard SMTP commands but does not deliver messages to the user.
 > The messages are stored within the Dumbster for later extraction and verification.
 
-**This repository is a fork of http://quintanasoft.com/dumbster/ (https://sourceforge.net/projects/dumbster/).**
+**This repository is a fork of [http://quintanasoft.com/dumbster/](http://quintanasoft.com/dumbster/).**
 
 I forked it for two reasons:
 
@@ -20,7 +20,7 @@ Add maven dependency:
 <dependency>
     <groupId>com.github.kirviq</groupId>
     <artifactId>dumbster</artifactId>
-    <version>1.7</version>
+    <version>1.7.1</version>
     <scope>test</scope>
 </dependency>
 ```
